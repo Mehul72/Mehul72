@@ -10,7 +10,7 @@
   .box-head { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .markdown-body { padding: 24px; }
   .markdown-body p { margin: 0 0 16px; }
-  .markdown-body img { max-width: 100%; box-sizing: content-box; background-color: var(--bg); vertical-align: middle; border-style: none; }
+  .markdown-body img, .markdown-body object { max-width: 100%; box-sizing: content-box; background-color: var(--bg); vertical-align: middle; border-style: none; }
   .markdown-body a { color: #4493f8; }
 </style>
 <body>
@@ -27,6 +27,8 @@
     const obj = document.createElement("object");
     obj.type = "image/svg+xml";
     obj.data = img.src;
+    obj.setAttribute("role", "img");
+    if (img.alt) obj.setAttribute("aria-label", img.alt);
     for (const a of ["width", "height"]) if (img.hasAttribute(a)) obj.setAttribute(a, img.getAttribute(a));
     obj.style.verticalAlign = "middle";
     obj.addEventListener("load", () => {

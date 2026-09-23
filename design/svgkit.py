@@ -8,6 +8,7 @@ containing only the glyphs it actually uses.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import math
 import subprocess
@@ -23,8 +24,18 @@ DESIGN = Path(__file__).resolve().parent
 CACHE = DESIGN / ".cache"
 
 SOURCES = {
-    "inter": ("Inter.ttf", "https://github.com/google/fonts/raw/main/ofl/inter/Inter%5Bopsz,wght%5D.ttf"),
-    "mono": ("JetBrainsMono.ttf", "https://github.com/google/fonts/raw/main/ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf"),
+    "inter": (
+        "Inter.ttf",
+        "https://raw.githubusercontent.com/google/fonts/e44c4b011a820c2cbe2fd2cfa8052037d7edb571/"
+        "ofl/inter/Inter%5Bopsz,wght%5D.ttf",
+        "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+    ),
+    "mono": (
+        "JetBrainsMono.ttf",
+        "https://raw.githubusercontent.com/google/fonts/e44c4b011a820c2cbe2fd2cfa8052037d7edb571/"
+        "ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf",
+        "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda",
+    ),
 }
 
 LAYOUT_FEATURES = ["kern", "liga", "calt", "ccmp", "locl", "mark", "mkmk", "case", "tnum"]
@@ -60,11 +71,22 @@ MONO_BOLD = Face("mono", 700)
 
 
 def _source(family: str) -> Path:
-    name, url = SOURCES[family]
+    name, url, expected = SOURCES[family]
     path = CACHE / name
+    if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+        path.unlink()
     if not path.exists():
         CACHE.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["curl", "-fsSL", "-o", str(path), url], check=True)
+        pending = path.with_suffix(path.suffix + ".download")
+        subprocess.run(
+            ["curl", "-fsSL", "--proto", "=https", "--tlsv1.2", "--retry", "3", "-o", str(pending), url],
+            check=True,
+        )
+        actual = hashlib.sha256(pending.read_bytes()).hexdigest()
+        if actual != expected:
+            pending.unlink(missing_ok=True)
+            raise RuntimeError(f"checksum mismatch for {name}: expected {expected}, got {actual}")
+        pending.replace(path)
     return path
 
 
@@ -81,7 +103,8 @@ class FontStore:
                 axes = {"wght": face.wght}
                 if face.family == "inter":
                     axes["opsz"] = face.opsz or 14
-                font = instantiateVariableFont(TTFont(_source(face.family)), axes)
+                font = instantiateVariableFont(TTFont(_source(face.family), recalcTimestamp=False), axes)
+                font.recalcTimestamp = False
                 path.parent.mkdir(parents=True, exist_ok=True)
                 font.save(path)
             self._bytes[face] = path.read_bytes()
@@ -103,7 +126,8 @@ class FontStore:
         return advance / upem * size + spacing * len(text)
 
     def woff2(self, face: Face, chars: str) -> bytes:
-        font = TTFont(io.BytesIO(self.static(face)))
+        font = TTFont(io.BytesIO(self.static(face)), recalcTimestamp=False)
+        font.recalcTimestamp = False
         options = ftsubset.Options()
         options.flavor = "woff2"
         options.layout_features = LAYOUT_FEATURES

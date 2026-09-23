@@ -26,12 +26,22 @@ SIMPLE_ICONS_PINS = {"linkedin": "13.21.0", "openai": "15.22.0", "visualstudioco
 
 def _brand_svg(name: str) -> str:
     path = CACHE / "icons" / f"{name}.svg"
-    if not path.exists():
+    raw = path.read_text(encoding="utf-8") if path.exists() else ""
+    if not re.search(r'<path d="[^"]+"', raw):
         path.parent.mkdir(parents=True, exist_ok=True)
         version = SIMPLE_ICONS_PINS.get(name, SIMPLE_ICONS_VERSION)
         url = SIMPLE_ICONS.format(version=version, name=name)
-        subprocess.run(["curl", "-fsSL", "-o", str(path), url], check=True)
-    return path.read_text()
+        pending = path.with_suffix(".svg.download")
+        subprocess.run(
+            ["curl", "-fsSL", "--proto", "=https", "--tlsv1.2", "--retry", "3", "-o", str(pending), url],
+            check=True,
+        )
+        raw = pending.read_text(encoding="utf-8")
+        if not re.search(r'<path d="[^"]+"', raw):
+            pending.unlink(missing_ok=True)
+            raise RuntimeError(f"downloaded icon has no SVG path: {name}")
+        pending.replace(path)
+    return raw
 
 
 def base(doc: Doc) -> None:

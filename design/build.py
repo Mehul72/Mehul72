@@ -132,7 +132,12 @@ class Timeline:
         if frames[-1][0] < self.total:
             frames.append((self.total, frames[-1][1], self.LINEAR))
         values = ";".join(v for _, v, _ in frames)
-        times = ";".join(num(min(t / self.total, 1) if i < len(frames) - 1 else 1) for i, (t, _, _) in enumerate(frames))
+        fractions = [min(t / self.total, 1) if i < len(frames) - 1 else 1 for i, (t, _, _) in enumerate(frames)]
+        if any(a >= b for a, b in zip(fractions, fractions[1:])):
+            raise ValueError(f"{attribute} timeline frames must have distinct, increasing times")
+        # `num()` intentionally rounds geometry to two decimals. SMIL key times
+        # need more precision or nearby frames collapse into duplicate values.
+        times = ";".join(f"{fraction:.6f}".rstrip("0").rstrip(".") for fraction in fractions)
         splines = ";".join(s for _, _, s in frames[:-1])
         tag = "animateTransform" if kind == "transform" else "animate"
         return (
@@ -314,6 +319,12 @@ def header(theme: str) -> Doc:
     W, H = HEADER_W, HEADER_H
     doc = Doc(W, H)
     doc.style(DRIFT_CSS)
+    doc.style(
+        ".reduced-motion{display:none}"
+        "@media (prefers-reduced-motion:reduce){"
+        ".motion{display:none!important}.reduced-motion{display:inline!important}.pulse{animation:none!important}"
+        "}"
+    )
     ink = "#F5F5F7" if dark else "#1D1D1F"
     doc.define("screen", f'<clipPath id="screen"><rect width="{W}" height="{H}" rx="26"/></clipPath>')
 
@@ -396,10 +407,16 @@ def header(theme: str) -> Doc:
             tl.at(s, "0 0", Timeline.OUT).at(s + 0.17, "0 -18", Timeline.EASE).at(s + 0.36, "0 0", Timeline.OUT)
             tl.at(s + 0.5, "0 -8", Timeline.EASE).at(s + 0.64, "0 0", Timeline.LINEAR)
             bounce = tl.animate("transform", kind="transform", extra='type="translate"')
+        placed_icon = icon(doc, name, ix, iy, size)
+        rendered_icon = (
+            f'<g class="motion">{bounce}{placed_icon}</g><g class="reduced-motion">{placed_icon}</g>'
+            if bounce
+            else f"<g>{placed_icon}</g>"
+        )
         parts.append(
             f'<ellipse cx="{num(ix + size / 2)}" cy="{num(iy + size - 1)}" rx="{num(size * 0.42)}" ry="5" '
             f'fill="#000" fill-opacity="{".35" if dark else ".14"}"/>'
-            f"<g>{bounce}{icon(doc, name, ix, iy, size)}</g>"
+            + rendered_icon
         )
         parts.append(
             f'<circle cx="{num(ix + size / 2)}" cy="{num(dock_y + dock_h - 5)}" r="2" fill="{ink}" '
@@ -415,7 +432,10 @@ def header(theme: str) -> Doc:
         s = LEAD + i * SLOT
         shape.at(s, compact, Timeline.OUT).at(s + 0.34, overshoot, Timeline.EASE).at(s + 0.56, expanded, Timeline.LINEAR)
         shape.at(s + 3.1, expanded, Timeline.EASE).at(s + 3.5, compact, Timeline.LINEAR)
-    parts.append(f'<path d="{compact}" fill="#000">{shape.animate("d")}</path>')
+    parts.append(
+        f'<path class="motion" d="{compact}" fill="#000">{shape.animate("d")}</path>'
+        f'<path class="reduced-motion" d="{compact}" fill="#000"/>'
+    )
     parts.append('<circle cx="640" cy="15" r="3.2" fill="#0B0F1E"/><circle cx="639.2" cy="14.2" r="1" fill="#2A3558"/>')
 
     left, right, cy = 640 - ISLAND_W / 2 + 22, 640 + ISLAND_W / 2 - 24, 60
@@ -429,7 +449,7 @@ def header(theme: str) -> Doc:
         rise.at(s + 0.26, "0 6", Timeline.OUT).at(s + 0.62, "0 0", Timeline.LINEAR).at(s + 2.92, "0 0", Timeline.EASE).at(s + 3.16, "0 -4", Timeline.LINEAR)
         motion = rise.animate("transform", kind="transform", extra='type="translate"')
         parts.append(
-            f'<g opacity="0">{fade.animate("opacity")}{motion}'
+            f'<g class="motion" opacity="0">{fade.animate("opacity")}{motion}'
             + icon(doc, name, left, cy - 22, 44)
             + doc.text(left + 58, cy - 3, title, SEMI, 16, "#fff")
             + doc.text(left + 58, cy + 17, subtitle, MEDIUM, 13.5, "#fff", opacity=0.62)
@@ -516,6 +536,10 @@ def about(theme: str) -> Doc:
     dark = is_dark(theme)
     W, H = 1280, 648
     doc = Doc(W, H)
+    doc.style(
+        ".terminal-static{display:none}"
+        "@media (prefers-reduced-motion:reduce){.terminal-motion{display:none}.terminal-static{display:inline}}"
+    )
     ink = "#F5F5F7" if dark else "#1D1D1F"
     muted = "#98989F" if dark else "#6E6E73"
     parts = []
@@ -551,6 +575,8 @@ def about(theme: str) -> Doc:
     y = ty + 102
     prompt_w = sum(len(t) for t, _ in PROMPT) * char
     clock = 0.35
+    terminal_motion = []
+    terminal_static = []
     for n, line in enumerate(TERMINAL):
         kind = line[0]
         if kind == "blank":
@@ -562,16 +588,22 @@ def about(theme: str) -> Doc:
             cursor_x = col + prompt_w
             reveal = "" if n == 0 else f'<set attributeName="opacity" to="1" begin="{num(appear)}s" fill="freeze"/>'
             hidden = "" if n == 0 else ' opacity="0"'
-            parts.append(f"<g{hidden}>{reveal}{doc.runs(col, y, runs, size)}</g>")
+            terminal_motion.append(f"<g{hidden}>{reveal}{doc.runs(col, y, runs, size)}</g>")
+            terminal_static.append(doc.runs(col, y, runs, size))
             if kind == "prompt":
-                parts.append(
+                terminal_motion.append(
                     f'<rect x="{num(cursor_x)}" y="{num(y - 16)}" width="{num(char)}" height="21" rx="1.5" fill="#E6EDF3" opacity="0">'
                     f'<set attributeName="opacity" to="1" begin="{num(appear)}s" fill="freeze"/>'
                     f'<animate attributeName="opacity" values="1;0" dur="1.1s" calcMode="discrete" begin="{num(appear)}s" '
                     'repeatCount="indefinite"/></rect>'
                 )
+                terminal_static.append(
+                    f'<rect x="{num(cursor_x)}" y="{num(y - 16)}" width="{num(char)}" height="21" '
+                    'rx="1.5" fill="#E6EDF3" fill-opacity=".8"/>'
+                )
                 break
             command = line[1]
+            terminal_static.append(doc.text(cursor_x, y, command, MONO, size, "#F0F6FC"))
             start = appear + 0.3
             step = 0.075
             steps = len(command)
@@ -586,11 +618,11 @@ def about(theme: str) -> Doc:
                 f'<animate attributeName="width" values="{widths}" keyTimes="{times}" calcMode="discrete" '
                 f'begin="{num(start)}s" dur="{num(dur)}s" fill="freeze"/></rect></clipPath>',
             )
-            parts.append(
+            terminal_motion.append(
                 f'<g clip-path="url(#{clip})">' + doc.text(cursor_x, y, command, MONO, size, "#F0F6FC") + "</g>"
             )
             done = start + dur + 0.25
-            parts.append(
+            terminal_motion.append(
                 f'<rect x="{num(cursor_x)}" y="{num(y - 16)}" width="{num(char)}" height="21" rx="1.5" fill="#E6EDF3" opacity="0">'
                 f'<set attributeName="opacity" to="1" begin="{num(appear)}s"/>'
                 f'<set attributeName="opacity" to="0" begin="{num(done)}s" fill="freeze"/>'
@@ -610,14 +642,18 @@ def about(theme: str) -> Doc:
                 _, index, text = line
                 runs = [(f"{index}  ", MONO_BOLD, "#67E8F9"), (text, MONO, "#C9D1D9")]
             assert col + (2 + sum(len(t) for t, _, _ in runs)) * char < tx + tw - 36, f"terminal line {n} is too long"
-            parts.append(
+            output = doc.runs(col + char * 2, y, runs, size)
+            terminal_motion.append(
                 f'<g opacity="0"><set attributeName="opacity" to="1" begin="{num(clock)}s" fill="freeze"/>'
-                + doc.runs(col + char * 2, y, runs, size)
+                + output
                 + "</g>"
             )
+            terminal_static.append(output)
             if TERMINAL[n + 1][0] != "kv" and TERMINAL[n + 1][0] != "num":
                 clock += 0.35
         y += lead
+    parts.append(f'<g class="terminal-motion">{"".join(terminal_motion)}</g>')
+    parts.append(f'<g class="terminal-static">{"".join(terminal_static)}</g>')
 
     # About This Mehul
     ax, ay, aw, ah = 24, 22, 500, 572
@@ -654,7 +690,7 @@ def about(theme: str) -> Doc:
         f'stroke="{"#fff" if dark else "#000"}" stroke-opacity="{".1" if dark else ".08"}"/>'
         + doc.text(cx, ay + 517.5, "More Info…", MEDIUM, 16, ink, anchor="middle")
     )
-    parts.append(doc.text(cx, ay + 552, "™ and © 2018–2026 Mehul. All rights reserved.", BODY, 13.5, muted, anchor="middle", opacity=0.85))
+    parts.append(doc.text(cx, ay + 552, "Built in Sydney · Local-first by default", BODY, 13.5, muted, anchor="middle", opacity=0.85))
 
     doc.add(*parts)
     return doc

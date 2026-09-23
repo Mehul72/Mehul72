@@ -16,10 +16,14 @@ import json
 import os
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 USER = os.environ.get("PROFILE_USER", "Mehul72")
+TIMEZONE = os.environ.get("PROFILE_TIMEZONE", "Australia/Sydney")
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE.parent / "assets"
 FONTS = HERE / "fonts"
@@ -55,13 +59,32 @@ LINGUIST = {
 
 
 def fetch(url: str, token: str | None = None, body: dict | None = None) -> bytes:
-    headers = {"User-Agent": f"{USER}-profile-activity", "Accept": "application/vnd.github+json"}
+    headers = {
+        "User-Agent": f"{USER}-profile-activity",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if body is not None:
+        headers["Content-Type"] = "application/json"
     data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(url, data=data, headers=headers)
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read()
+    for attempt in range(3):
+        request = urllib.request.Request(url, data=data, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if error.code not in {429, 500, 502, 503, 504} or attempt == 2:
+                raise
+            delay = float(error.headers.get("Retry-After") or 2**attempt)
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == 2:
+                raise
+            delay = 2**attempt
+        print(f"request failed; retrying in {delay:g}s: {url}", file=sys.stderr)
+        time.sleep(delay)
+    raise AssertionError("unreachable")
 
 
 def from_graphql(token: str) -> tuple[list[tuple[dt.date, int]], int, dict[str, tuple[int, str]]]:
@@ -82,10 +105,10 @@ def from_graphql(token: str) -> tuple[list[tuple[dt.date, int]], int, dict[str, 
         for edge in repo["languages"]["edges"]:
             name, color = edge["node"]["name"], edge["node"]["color"] or "#8B949E"
             languages[name] = (languages.get(name, (0, color))[0] + edge["size"], color)
-    return days, calendar["totalContributions"], languages
+    return sorted(days), calendar["totalContributions"], languages
 
 
-def from_public_pages() -> tuple[list[tuple[dt.date, int]], int, dict[str, tuple[int, str]]]:
+def from_public_pages(token: str | None = None) -> tuple[list[tuple[dt.date, int]], int, dict[str, tuple[int, str]]]:
     page = fetch(f"https://github.com/users/{USER}/contributions").decode()
     dates = dict(re.findall(r'data-date="([\d-]+)" id="([^"]+)"', page))
     by_id = {cell_id: date for date, cell_id in dates.items()}
@@ -98,22 +121,22 @@ def from_public_pages() -> tuple[list[tuple[dt.date, int]], int, dict[str, tuple
     total = int(total_match.group(1).replace(",", "")) if total_match else sum(c for _, c in days)
 
     languages: dict[str, tuple[int, str]] = {}
-    repos = json.loads(fetch(f"https://api.github.com/users/{USER}/repos?per_page=100&type=owner"))
+    repos = json.loads(fetch(f"https://api.github.com/users/{USER}/repos?per_page=100&type=owner", token))
     for repo in repos:
         if repo["fork"] or repo["name"].lower() == USER.lower():
             continue
-        for name, size in json.loads(fetch(repo["languages_url"])).items():
+        for name, size in json.loads(fetch(repo["languages_url"], token)).items():
             languages[name] = (languages.get(name, (0, ""))[0] + size, LINGUIST.get(name, "#8B949E"))
     return days, total, languages
 
 
-def streaks(days: list[tuple[dt.date, int]]) -> tuple[int, int]:
+def streaks(days: list[tuple[dt.date, int]], today: dt.date) -> tuple[int, int]:
     longest = run = 0
     for _, count in days:
         run = run + 1 if count else 0
         longest = max(longest, run)
     current = 0
-    tail = days[:-1] if days and days[-1][1] == 0 else days  # today may simply not have started yet
+    tail = days[:-1] if days and days[-1] == (today, 0) else days
     for _, count in reversed(tail):
         if not count:
             break
@@ -197,7 +220,7 @@ def render(theme: str, days, total: int, languages, today: dt.date) -> str:
     )
 
     # Totals and streaks
-    current, longest = streaks(days)
+    current, longest = streaks(days, today)
     best_date, best = max(days, key=lambda d: (d[1], d[0]))
     active = sum(1 for _, c in days if c)
     out.append(text(56, 74, "CONTRIBUTIONS", "semi", 14, muted, spacing=2.6))
@@ -299,14 +322,22 @@ def render(theme: str, days, total: int, languages, today: dt.date) -> str:
 
 def main() -> None:
     token = os.environ.get("GITHUB_TOKEN")
-    days, total, languages = from_graphql(token) if token else from_public_pages()
+    if token:
+        try:
+            days, total, languages = from_graphql(token)
+        except Exception as error:
+            print(f"GraphQL request failed ({error}); using public endpoints", file=sys.stderr)
+            days, total, languages = from_public_pages(token)
+    else:
+        days, total, languages = from_public_pages()
+    today = dt.datetime.now(ZoneInfo(TIMEZONE)).date()
+    days = [(date, count) for date, count in days if date <= today]
     if len(days) < 300 or not languages:
         sys.exit(f"refusing to render: got {len(days)} days and {len(languages)} languages")
-    today = dt.datetime.now(dt.timezone(dt.timedelta(hours=10))).date()
     ASSETS.mkdir(exist_ok=True)
     for theme in ("dark", "light"):
         path = ASSETS / f"activity-{theme}.svg"
-        path.write_text(render(theme, days, total, languages, today))
+        path.write_text(render(theme, days, total, languages, today), encoding="utf-8")
         print(f"wrote {path.relative_to(HERE.parent)} ({path.stat().st_size / 1024:.1f} KB)")
 
 

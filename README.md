@@ -12,10 +12,12 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Mehul72/Mehul72/main/assets/about-dark.svg">
-    <img src="https://raw.githubusercontent.com/Mehul72/Mehul72/main/assets/about-light.svg" width="100%" alt="About Mehul: software engineer in Sydney who builds Mac and iPhone apps, backends and tools for AI agents in Swift, Go, TypeScript and Python. Now shipping Switchboard, building Nomi, and hacking on codegraph and Crossbar. How I build: local first, say what the system guarantees then prove it, small tools for small recurring annoyances, and measure everything.">
-  </picture>
+  <a href="https://mehulfursule.vercel.app/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Mehul72/Mehul72/main/assets/about-dark.svg">
+      <img src="https://raw.githubusercontent.com/Mehul72/Mehul72/main/assets/about-light.svg" width="100%" alt="About Mehul: software engineer in Sydney who builds Mac and iPhone apps, backends and tools for AI agents in Swift, Go, TypeScript and Python. Now shipping Switchboard, building Nomi, and hacking on codegraph and Crossbar. How I build: local first, say what the system guarantees then prove it, small tools for small recurring annoyances, and measure everything.">
+    </picture>
+  </a>
 </p>
 
 <p align="center">
@@ -80,7 +82,6 @@
   </picture>
 </p>
 
-<!-- Replace the three links below with your own, and delete any you don't want. -->
 <p align="center">
   <a href="https://www.linkedin.com/in/mehul-fursule/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Mehul72/Mehul72/main/assets/contact-linkedin-dark.svg"><img src="https://raw.githubusercontent.com/Mehul72/Mehul72/main/assets/contact-linkedin-light.svg" height="56" alt="LinkedIn"></picture></a>
   <a href="mailto:mehulfursule@gmail.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Mehul72/Mehul72/main/assets/contact-email-dark.svg"><img src="https://raw.githubusercontent.com/Mehul72/Mehul72/main/assets/contact-email-light.svg" height="56" alt="Email"></picture></a>
