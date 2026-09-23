@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>frame</title>
+<style>
+  body { margin: 0; background: #0d1117; overflow: hidden; }
+  body.light { background: #ffffff; }
+  #view { position: relative; overflow: hidden; }
+  object { display: block; position: absolute; }
+</style>
+<body>
+<div id="view"><object id="art" type="image/svg+xml"></object></div>
+<script>
+  // ?src=..&t=seconds&w=display width&zoom=2&x=..&y=.. (crop origin in artwork px)
+  const p = new URLSearchParams(location.search);
+  const t = p.has("t") ? parseFloat(p.get("t")) : null;
+  const zoom = parseFloat(p.get("zoom") || "1");
+  const width = parseFloat(p.get("w") || "1280");
+  const x = parseFloat(p.get("x") || "0"), y = parseFloat(p.get("y") || "0");
+  if (p.get("bg") === "light") document.body.classList.add("light");
+  const view = document.getElementById("view");
+  view.style.width = "100vw"; view.style.height = "100vh";
+  const art = document.getElementById("art");
+  art.style.width = (width * zoom) + "px";
+  art.style.left = (24 - x * zoom * width / 1280) + "px";
+  art.style.top = (24 - y * zoom * width / 1280) + "px";
+  art.addEventListener("load", () => {
+    const doc = art.contentDocument;
+    const svg = doc.documentElement;
+    if (t !== null) {
+      svg.pauseAnimations();
+      svg.setCurrentTime(t);
+      for (const a of doc.getAnimations()) { a.pause(); a.currentTime = t * 1000; }
+    }
+    document.title = "ready";
+  });
+  art.data = p.get("src") + "?v=" + Date.now();
+</script>
